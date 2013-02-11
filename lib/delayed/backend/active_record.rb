@@ -55,7 +55,7 @@ module Delayed
           #
           # Temporary fix is to remove limit restriction.
           # nextScope = nextScope.scoped.by_priority.limit(1).lock(true)
-          nextScope = nextScope.scoped.by_priority.lock(true)
+          nextScope = nextScope.scoped.by_priority.send(:with_exclusive_scope) { nextScope.limit(1) }.lock(true)
           nextScope = nextScope.scoped.select('id')
 
           now = self.db_time_now
@@ -69,7 +69,14 @@ module Delayed
             # This works on any database and uses seperate queries to lock and return the job
             # Databases like PostgreSQL and MySQL that support "SELECT .. FOR UPDATE" (ActiveRecord Pessimistic locking) don't need the second application
             # of 'readyScope' but it doesn't hurt and it ensures that the job being locked still meets ready_to_run criteria.
-            count = readyScope.where(:id => nextScope).update_all(:locked_at => now, :locked_by => worker.name)
+
+            # MySQL 5.0.x will complain that you're trying to update the same table as the subquery 
+            # that runs to get all the ids of the jobs in `nextScope`
+            # The workaround is to call the scope with the :with_exclusive_scope method as documented here:
+            # http://apidock.com/rails/v2.3.8/ActiveRecord/Base/update_all/class
+            # count = readyScope.where(:id => nextScope).update_all(:locked_at => now, :locked_by => worker.name)
+            next_jobs = readyScope.where(:id => nextScope)
+            count = next_jobs.send(:with_exclusive_scope) { next_jobs.update_all(:locked_at => now, :locked_by => worker.name) }
             return nil if count == 0
             return self.where(:locked_at => now, :locked_by => worker.name).first
           end
