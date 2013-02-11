@@ -49,7 +49,13 @@ module Delayed
           nextScope = nextScope.scoped(:conditions => ['priority >= ?', Worker.min_priority]) if Worker.min_priority
           nextScope = nextScope.scoped(:conditions => ['priority <= ?', Worker.max_priority]) if Worker.max_priority
           nextScope = nextScope.scoped(:conditions => ["queue IN (?)", Worker.queues]) if Worker.queues.any?
-          nextScope = nextScope.scoped.by_priority.limit(1).lock(true)
+
+          # This raises mysql2 errors:
+          # Mysql2::Error: This version of MySQL doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'
+          #
+          # Temporary fix is to remove limit restriction.
+          # nextScope = nextScope.scoped.by_priority.limit(1).lock(true)
+          nextScope = nextScope.scoped.by_priority.lock(true)
           nextScope = nextScope.scoped.select('id')
 
           now = self.db_time_now
